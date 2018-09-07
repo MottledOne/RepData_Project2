@@ -1,0 +1,105 @@
+---
+title: "Analysis of NOAA Storm Data"
+output: md_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+#Synopsis
+
+
+Questions
+Your data analysis must address the following questions:
+1. Across the United States, which types of events are most harmful with respect to population health?
+  How do we quantify/measure harm to population health? (costs? probability of occurence? causes death?)
+  What do we mean by "most harmfu"? Causes
+2. Across the United States, which types of events have the greatest economic consequences?
+
+#Data Processing
+We start by downloading and importing the raw data, making use of the **tidyverse** package.
+```{r, cache = TRUE, message = FALSE, results='hide'}
+if(!dir.exists("./data")){
+  dir.create("./data")
+  fileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+  download.file(fileURL, destfile = "./data/repdata_data_StormData.csv.bz2", method = "auto")
+}
+
+storm_data <- read_csv("./data/repdata_data_StormData.csv.bz2")
+```
+```{r Utility Functions, echo = FALSE}
+ConvertDmg <- function(x,y) {
+  if(y[[1]] %in% c("K","k")){
+    y <- 1e3
+  }
+  else if (y[[1]] %in% c("M","m")){
+    y <- 1e6
+  }
+  else if (y[[1]] %in% c("B", "b")){
+    y <- 1e9
+  }
+  else if (is.numeric(as.numeric(y[[1]]))){
+    y <- as.numeric(y[[1]])
+  }
+  else {
+    y <- NA
+  }
+  x*y
+}
+```
+
+We then perform a cursory exploratory data analysis to check pertinent variables (`EVTYPE`, `FATALITIES`, `PROPDMG`, `PROPDMGEXP`, `CROPDMG`,  `CROPDMGEXP`) for missing values.
+```{r Exploratory Data Analysis}
+pert_data <- storm_data %>% 
+  select(EVTYPE, FATALITIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+
+summary(pert_data)
+
+pert_data %>% 
+  filter(is.na(EVTYPE))
+
+pert_data %>% 
+  filter(is.na(PROPDMGEXP))
+```
+A quick inspection shows that there are no missing values for fatalities or event types. However, we see that there are quite a significant number of entries with missing data on the amount of crop and property damage. The data for each of these variables is split into two columns, a numerical value (in dollars) and an "exponent" representing the order of magnitude of damage (thousands, millions, or billions). It initially appears that all those  entries with missing damage exponents also possess a value of 0 for the dollar value, suggesting that these events resulted in no damage and that we can omit them from our analysis of the which event types are most damaging. We validate this approximation by verifying that all those entries with missing exponent values also possess a zero entry for the damage value:
+
+```{r}
+pert_data %>% 
+  filter( (is.na(CROPDMGEXP) & CROPDMG != 0) | (is.na(PROPDMGEXP) & PROPDMG != 0) )
+```
+
+We find that a small portion of the recorded storms (less than 79 out of over 900,000) have erroneously reported property and/or crop damage. It is not clear yet what effect excluding these entries will have on the identifying the most damaging event type, so we will return to this issue later.
+
+**Is it safe to exclude these values?**
+
+```{r random walk}
+table(storm_data$PROPDMGEXP, useNA = "ifany")
+```
+
+#Results
+
+```{r}
+storm_data %>% 
+  group_by(EVTYPE) %>% 
+  summarise(FATALITIES = sum(FATALITIES), INJURIES = sum(INJURIES)) %>% 
+  arrange(desc(FATALITIES))
+
+storm_data %>% 
+  group_by(EVTYPE) %>% 
+  mutate(PROPDMG = ConvertDmg(PROPDMG, PROPDMGEXP), CROPDMG = ConvertDmg(CROPDMG, CROPDMGEXP)) %>% 
+  summarise(PROPDMG = sum(PROPDMG), CROPDMG = sum(CROPDMG)) %>% 
+  arrange(desc(CROPDMG))
+```
+
+```{r}
+storm_data %>% 
+  group_by(EVTYPE) %>% 
+  summarise(FATALITIES = sum(FATALITIES), INJURIES = sum(INJURIES)) %>% 
+  arrange(desc(FATALITIES)) %>% 
+  filter(FATALITIES > 100) %>% 
+  ggplot(data = ., mapping = aes(x = EVTYPE)) + 
+  geom_bar()
+  
+```
+
